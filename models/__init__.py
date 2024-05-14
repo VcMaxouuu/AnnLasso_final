@@ -1,2 +1,2 @@
 from .AnnLassoRegression import AnnLassoRegression
-from .LinearRegression import LinearModel
+from .AnnLassoClassification import AnnLassoClassification

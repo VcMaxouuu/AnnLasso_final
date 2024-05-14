@@ -1,9 +1,11 @@
 import torch 
-from torch.nn import MSELoss
+import torch.nn as nn
 import utils
 import numpy as np
 import pandas as pd
 from torch.nn.functional import normalize, linear
+from seaborn import color_palette
+import matplotlib.pyplot as plt
 
 class ModelArchitecture:
     def __init__(self, model_type=0, p2=20, lambda_qut=None, device=None):
@@ -18,11 +20,12 @@ class ModelArchitecture:
         self.layer1, self.layer2 = None, None
         self.important_features = None
         self.layer1_simplified = None
+        self.layer1_history = {}
 
 
-    def fit(self, X, y, verbose=False):
+    def fit(self, X, y, verbose=False, param_history=False):
         if self.trained:
-            return print("Model already trained, call 'reset' method first.")
+            raise Exception("Model already trained, call 'reset' method first.")
             
         X, y = utils.data_to_tensor(X, y)
         X, y = X.to(self.device), y.to(self.device)
@@ -39,15 +42,21 @@ class ModelArchitecture:
             elif self.model_type == 1:
                 self.lambda_qut = utils.lambda_qut_classification(X, self.act_fun)
         else:
-            self.lambda_qut = torch.tensor(self.lambda_qut, dtype=torch.float, device=self.device)
+            if isinstance(self.lambda_qut, torch.Tensor):
+                self.lambda_qut = self.lambda_qut.to(self.device, dtype=torch.float)
+            else:
+                self.lambda_qut = torch.tensor(self.lambda_qut, dtype=torch.float, device=self.device)
 
-        self.train_loop(X, y, verbose)
-        self.update_simplified_model()
+        self.train_loop(X, y, verbose, param_history)
+
+        self.important_features = self.imp_feat()
+        self.layer1_simplified = nn.Linear(self.important_features[0], self.p2, device=self.device)
+        self.layer1_simplified.weight.data, self.layer1_simplified.bias.data = self.layer1.weight.data[:, self.important_features[1]].clone(), self.layer1.bias.data.clone()
 
         if verbose: print("MODEL FITTED !")
         self.trained = True
 
-    def train_loop(self, X, y, verbose):
+    def train_loop(self, X, y, verbose, param_history):
         for i, nu in zip(range(-1, 6), [1, 0.8, 0.6, 0.4, 0.2, 0.1, 0.01]):
             lambi = self.lambda_qut * (np.exp(i) / (1 + np.exp(i)) if i < 5 else 1)
             rel_err = 1e-9 if i == 5 else 1e-5
@@ -56,52 +65,8 @@ class ModelArchitecture:
             if verbose:
                 print(f"Lambda = {lambi.item():.4f} -- Nu = {nu}")
                 
-            self.train(nu, X, y, lambi, 0.1, rel_err, loss_fn, verbose)
+            self.train(nu, X, y, lambi, 0.1, rel_err, loss_fn, verbose, param_history)
 
-    def train(self, nu, X, y, lambda_, initial_lr, rel_err, loss_fn, verbose):
-        layer1, layer2 = self.layer1, self.layer2
-
-        epoch, last_loss = 0, np.inf
-        optimizer_l1 = utils.FISTA(params=layer1.parameters(), lr=initial_lr, lambda_=lambda_, nu=nu)
-        optimizer_l2 = utils.FISTA(params=layer2.parameters(), lr=initial_lr, lambda_=torch.tensor(0, dtype=torch.float, device = self.device), nu=nu)
-
-        lr_factor = 0.9
-        max_epochs = 10000
-
-        while epoch < max_epochs:
-            optimizer_l1.zero_grad()
-            optimizer_l2.zero_grad()
-
-            y_pred = self.forward(X)
-            loss, bare_loss, train_loss = loss_fn(y_pred, y, layer1)
-            loss = loss.detach()
-            train_loss = train_loss.detach()
-
-            if verbose and epoch % 20 ==0:
-                print(f"\tEpoch: {epoch} | Loss: {loss.item():.5f} | MSE on train set: {train_loss.item():.5f} | Non zeros parameters: {self.important_features()} | learning rate : {optimizer_l1.get_lr():.6f}")
-
-            if loss > last_loss: 
-                optimizer_l1.update(optimizer_l1.get_lr()*lr_factor)
-                optimizer_l2.update(optimizer_l2.get_lr()*lr_factor)
-
-            if epoch % 10 == 0:
-                if epoch > 0 and abs(loss - last_loss) / loss < rel_err:
-                    if verbose: print(f"\n\t Descent stopped: loss is no longer decreasing significantly.\n")
-                    break
-                last_loss = loss
-                
-            epoch += 1
-            bare_loss.backward()
-            optimizer_l1.step()
-            optimizer_l2.step()
-
-        if epoch == max_epochs and verbose: print("FISTA descent stopped: maximum iterations reached") 
-
-    def update_simplified_model(self):
-        self.important_features = self.imp_feat()
-        self.layer1_simplified = Linear(self.important_features[0], self.p2, device=self.device)
-        self.layer1_simplified.weight.data, self.layer1_simplified.bias.data = self.layer1.weight.data[:, self.important_features[1]].clone(), self.layer1.bias.data.clone()
-        
     def reset(self):
         self.trained = False
         self.important_features = None
@@ -135,18 +100,75 @@ class ModelArchitecture:
             
     def predict(self, X):
         if not self.trained:
-            print("Model not trained, call 'fit' method first.")
-        else:
-            X = utils.X_to_tensor(X).to(self.device)
-            X = self.apply_feature_selection(X)
-            with torch.inference_mode():
-                layer1_output = self.act_fun(self.layer1_simplified(X))
-                w2_weights_normalized = normalize(self.layer2.weight, p=2, dim=1)
-                logits = linear(layer1_output, w2_weights_normalized, self.layer2.bias)
-            return logits.squeeze()
+            raise Exception("Model not trained, call 'fit' method first.")
+
+        X = utils.X_to_tensor(X).to(self.device)
+        X = self.apply_feature_selection(X)
+        with torch.inference_mode():
+            layer1_output = self.act_fun(self.layer1_simplified(X))
+            w2_weights_normalized = normalize(self.layer2.weight, p=2, dim=1)
+            logits = linear(layer1_output, w2_weights_normalized, self.layer2.bias)
+        return logits.squeeze().numpy()
+
+    def lasso_path(self):
+        if not self.trained:
+            raise Exception("Model not trained, call 'fit' method first and set 'param_history' to True.")
+        if self.trained and not bool(self.layer1_history):
+            raise Exception("Model has been trained with 'param_history' set to False.")
+
+        imp_feat = self.important_features
+        palette = color_palette(None, 300)
+
+        plt.figure(figsize=(15,6))
+
+        start_x = 0
+        x_ticks, l_values = [], []
+        for l, i in self.layer1_history.items():
+            x_ticks.append(start_x)
+            l_values.append(np.round(l.item(), 3))
+            plt.axvline(x=start_x, color='gray', linestyle='--')
+
+            tensors = [j for j in i]
+            data = torch.stack(tensors, dim=0)
+            x_values = np.arange(start_x, start_x + data.size(0))
+
+            for k in range(data.size(1)):
+                if k not in imp_feat[1]:
+                    plt.plot(x_values, data[:, k].numpy(), 'b--', linewidth=0.5)
+                else:
+                    if l == list(self.layer1_history.keys())[-1]:
+                        plt.plot(x_values, data[:, k].numpy(), color=palette[k], linewidth=2, label=f'{k}')
+                    else:
+                        plt.plot(x_values, data[:, k].numpy(), color=palette[k], linewidth=2)
 
 
+            start_x += data.size(0)
 
+                
+        plt.legend(loc='lower right')
+        plt.title("Lasso Path")
+        plt.xlabel("Regularisation strength")
+        plt.ylabel("Parameters magnitudes")
+        plt.xticks(x_ticks, l_values)
+        plt.show()
+
+    def info(self):
+        print("MODEL INFORMATIONS:")
+        print('=' * 20)
+        print("General:")
+        print('―' * 20)
+        print(f"  Training Status: {'Trained' if self.trained else 'Not Trained'}")
+        if self.trained:
+            print(f"  Lambda_qut: {np.round(self.lambda_qut.item(), 4)}\n")
+            print("Layers:")
+            print('―' * 20)
+            print("  Layer 1: ")
+            print(f"\t Shape = {list(self.layer1.weight.shape)}")
+            print(f"\t Number of non zero entries in weights: {self.important_features[0]}")
+            print(f"\t Non zero entries indexes: {self.important_features[1]}")
+            print(f"\t Call 'layer1_simplified' attribute to get full, non zero, first layer.")
+            print("  Layer 2:")
+            print(f"\t Shape = {list(self.layer2.weight.shape)}")
 
 
 

@@ -44,7 +44,7 @@ class CustomRegressionLoss(nn.Module):
             regularization = self.lambda_ * (torch.abs(layer1.weight).sum() + torch.abs(layer1.bias).sum())
 
         total_loss = square_root_lasso_loss + regularization
-        return total_loss, square_root_lasso_loss, mse_loss_value
+        return total_loss, square_root_lasso_loss
 
 
 class CustomClassificationLoss(nn.Module):

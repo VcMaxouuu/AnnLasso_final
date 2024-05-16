@@ -4,8 +4,6 @@ import utils
 import numpy as np
 import pandas as pd
 from torch.nn.functional import normalize, linear
-from seaborn import color_palette
-import matplotlib.pyplot as plt
 
 class ModelArchitecture:
     def __init__(self, model_type=0, p2=20, lambda_qut=None, device=None):
@@ -116,41 +114,15 @@ class ModelArchitecture:
         if self.trained and not bool(self.layer1_history):
             raise Exception("Model has been trained with 'param_history' set to False.")
 
-        imp_feat = self.important_features
-        palette = color_palette(None, 300)
+        return utils.lasso_path(self.layer1_history, self.important_features[1])
+    
+    def layer1_evolution(self):
+        if not self.trained:
+            raise Exception("Model not trained, call 'fit' method first and set 'param_history' to True.")
+        if self.trained and not bool(self.layer1_history):
+            raise Exception("Model has been trained with 'param_history' set to False.")
 
-        plt.figure(figsize=(15,6))
-
-        start_x = 0
-        x_ticks, l_values = [], []
-        for l, i in self.layer1_history.items():
-            x_ticks.append(start_x)
-            l_values.append(np.round(l.item(), 3))
-            plt.axvline(x=start_x, color='gray', linestyle='--')
-
-            tensors = [j for j in i]
-            data = torch.stack(tensors, dim=0)
-            x_values = np.arange(start_x, start_x + data.size(0))
-
-            for k in range(data.size(1)):
-                if k not in imp_feat[1]:
-                    plt.plot(x_values, data[:, k].numpy(), 'b--', linewidth=0.5)
-                else:
-                    if l == list(self.layer1_history.keys())[-1]:
-                        plt.plot(x_values, data[:, k].numpy(), color=palette[k], linewidth=2, label=f'{k}')
-                    else:
-                        plt.plot(x_values, data[:, k].numpy(), color=palette[k], linewidth=2)
-
-
-            start_x += data.size(0)
-
-                
-        plt.legend(loc='lower right')
-        plt.title("Lasso Path")
-        plt.xlabel("Regularisation strength")
-        plt.ylabel("Parameters magnitudes")
-        plt.xticks(x_ticks, l_values)
-        plt.show()
+        return utils.draw_layer1_evolution(self.layer1_history)
 
     def info(self):
         print("MODEL INFORMATIONS:")

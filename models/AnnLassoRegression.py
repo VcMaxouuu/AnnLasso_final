@@ -26,8 +26,7 @@ class AnnLassoRegression(ModelArchitecture):
         lr_factor = 0.9
         max_epochs = 10000
 
-        if param_history: 
-            self.layer1_history[lambda_] = [torch.norm(layer1.weight.data.clone(), dim=0)]
+        if param_history: self.layer1_history[lambda_.item()] = [layer1.weight.data.clone()]
 
         while epoch < max_epochs:
             optimizer_l1.zero_grad()
@@ -55,6 +54,6 @@ class AnnLassoRegression(ModelArchitecture):
             optimizer_l1.step()
             optimizer_l2.step()
 
-            if param_history: self.layer1_history[lambda_].append(torch.norm(layer1.weight.data.clone(), dim=0))
+            if param_history: self.layer1_history[lambda_.item()].append(layer1.weight.data.clone())
 
         if epoch == max_epochs and verbose: print("FISTA descent stopped: maximum iterations reached") 

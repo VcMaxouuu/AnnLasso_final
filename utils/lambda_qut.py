@@ -30,6 +30,37 @@ def lambda_qut_regression(X, act_fun, n_samples=10000, mini_batch_size=500, alph
     else:
         pass
 
-def lambda_qut_classification(X, act_fun, n_samples=10000, mini_batch_size=500, alpha=0.05, option='quantile'):
-    pass
+def lambda_qut_classification(X, hat_p, act_fun, n_samples=10000, mini_batch_size=500, alpha=0.05, option='quantile'):
+    offset = 0 if n_samples % mini_batch_size == 0 else 1
+    n_samples_per_batch = n_samples // mini_batch_size + offset
+    
+    n, p1 = X.shape    
+    fullList = torch.zeros((mini_batch_size*n_samples_per_batch,), device= X.device)
+    num_classes =len(hat_p)
 
+    for index in range(n_samples_per_batch):
+        y_sample = torch.multinomial(hat_p, num_samples=n * mini_batch_size, replacement=True)
+        y_sample = torch.nn.functional.one_hot(y_sample, num_classes=num_classes).float()
+        y_sample = y_sample.view(n, 1, mini_batch_size, num_classes)
+        y_mean = y_sample.mean(dim=0)
+        y = (y_mean - y_sample).squeeze(1)
+
+        # 'ij' : X of size n x p1
+        # 'ikl' : y of size n x mini_batch_size x num_classes
+        # 'ijkl' : the result shape 
+        xy = torch.einsum('ij,ikl->ijkl', X, y)
+        
+        xy_sum = xy.sum(dim=0).abs().sum(dim=2)
+        xy_max = xy_sum.max(dim=0).values
+
+        
+        fullList[index * mini_batch_size:(index + 1) * mini_batch_size] = xy_max
+
+    fullList = fullList * function_derivative(act_fun, torch.tensor(0, dtype=torch.float, requires_grad=True, device = X.device))
+ 
+    if option=='full':
+        return fullList
+    elif option=='quantile':
+        return torch.quantile(fullList, 1-alpha)
+    else:
+        pass

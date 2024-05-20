@@ -48,7 +48,33 @@ class CustomRegressionLoss(nn.Module):
 
 
 class CustomClassificationLoss(nn.Module):
-    pass
+    def __init__(self, lambda_, nu):
+        super().__init__()
+        self.lambda_ = lambda_
+        self.nu = nu
+        self.cross_entropy_loss = nn.CrossEntropyLoss(reduction='sum')  
+
+    def custom_penalty_fun(self, layer1):
+        abs_weight = torch.abs(layer1.weight).sum()
+        power_weight = abs_weight.pow(1-self.nu)
+        penalty_weight = abs_weight.div(1+power_weight)
+
+        abs_bias = torch.abs(layer1.bias).sum()
+        power_bias = abs_bias.pow(1-self.nu)
+        penalty_bias = abs_bias.div(1+power_bias)
+
+        return penalty_weight + penalty_bias
+
+    def forward(self, input, target, layer1):
+        cross_entropy_loss_value = self.cross_entropy_loss(input, target)
+
+        if self.nu < 1:
+            regularization = self.lambda_ * self.custom_penalty_fun(layer1)
+        else:
+            regularization = self.lambda_ * (torch.abs(layer1.weight).sum() + torch.abs(layer1.bias).sum())
+
+        total_loss = cross_entropy_loss_value + regularization
+        return total_loss, cross_entropy_loss_value
 
 
 

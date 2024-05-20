@@ -6,8 +6,9 @@ import pandas as pd
 from torch.nn.functional import normalize, linear
 
 class ModelArchitecture:
-    def __init__(self, model_type=0, p2=20, lambda_qut=None, device=None):
-        self.model_type = model_type
+    def __init__(self, penalty=0, model_type=0, p2=20, lambda_qut=None, device=None):
+        self.penalty = penalty # 0 for custom and 1 for l1
+        self.model_type = model_type # 0 for regression and 1 for classification
         self.p2 = p2
         self.lambda_qut = lambda_qut
         self.device = torch.device("cuda" if torch.cuda.is_available() else 'cpu') if device is None else device
@@ -24,13 +25,20 @@ class ModelArchitecture:
     def fit(self, X, y, verbose=False, param_history=False):
         if self.trained:
             raise Exception("Model already trained, call 'reset' method first.")
-            
+
         X, y = utils.data_to_tensor(X, y)
+
+        if self.model_type == 1:
+            y = y.long()
+            hat_p = utils.get_hat_p(y)
+
         X, y = X.to(self.device), y.to(self.device)
-        
+
         n_features, p1 = X.shape
+
+        output_dim = 1 if self.model_type == 0 else len(hat_p)
         self.layer1 = nn.Linear(p1, self.p2, dtype=torch.float, device=self.device)
-        self.layer2 = nn.Linear(self.p2, 1, dtype=torch.float, device=self.device)
+        self.layer2 = nn.Linear(self.p2, output_dim, dtype=torch.float, device=self.device)
         nn.init.normal_(self.layer1.weight, mean=0.0, std=0.01)
         nn.init.normal_(self.layer2.weight, mean=0.0, std=0.01)
 
@@ -38,7 +46,7 @@ class ModelArchitecture:
             if self.model_type == 0:
                 self.lambda_qut = utils.lambda_qut_regression(X, self.act_fun)
             elif self.model_type == 1:
-                self.lambda_qut = utils.lambda_qut_classification(X, self.act_fun)
+                self.lambda_qut = utils.lambda_qut_classification(X, hat_p, self.act_fun)
         else:
             if isinstance(self.lambda_qut, torch.Tensor):
                 self.lambda_qut = self.lambda_qut.to(self.device, dtype=torch.float)
@@ -55,15 +63,17 @@ class ModelArchitecture:
         self.trained = True
 
     def train_loop(self, X, y, verbose, param_history):
-        for i, nu in zip(range(-1, 6), [1, 0.8, 0.6, 0.4, 0.2, 0.1, 0.01]):
+        for i in range(-1, 6):
+            nu = 1 if self.penalty == 1 else [1, 0.9, 0.8, 0.6, 0.4, 0.2, 0.1][i + 1]
             lambi = self.lambda_qut * (np.exp(i) / (1 + np.exp(i)) if i < 5 else 1)
             rel_err = 1e-9 if i == 5 else 1e-5
             loss_fn = utils.CustomRegressionLoss(lambi, nu).to(self.device) if self.model_type == 0 else utils.CustomClassificationLoss(lambi, nu).to(self.device)
-            
+            init_lr = 0.1*0.8**(i+1)
+
             if verbose:
-                print(f"Lambda = {lambi.item():.4f} -- Nu = {nu}")
-                
-            self.train(nu, X, y, lambi, 0.1, rel_err, loss_fn, verbose, param_history)
+                print(f"Lambda = {lambi.item():.4f} -- Nu = {nu}" if self.penalty == 0 else f"Lambda = {lambi.item():.4f}")
+            
+            self.train(nu, X, y, lambi, init_lr, rel_err, loss_fn, verbose, param_history)
 
     def reset(self):
         self.trained = False
@@ -106,7 +116,12 @@ class ModelArchitecture:
             layer1_output = self.act_fun(self.layer1_simplified(X))
             w2_weights_normalized = normalize(self.layer2.weight, p=2, dim=1)
             logits = linear(layer1_output, w2_weights_normalized, self.layer2.bias)
-        return logits.squeeze().numpy()
+
+        if self.model_type == 0:
+            return logits.squeeze().numpy() # Regression
+
+        softmax = nn.Softmax(dim=1)
+        return torch.argmax(softmax(logits), dim=1).numpy() # Classification
 
     def lasso_path(self):
         if not self.trained:

@@ -6,8 +6,8 @@ from torch.nn.functional import linear, normalize
 from .ModelArchitecture import ModelArchitecture
 
 class AnnLassoRegression(ModelArchitecture):
-    def __init__(self, p2=20, lambda_qut=None, device=None):
-        super().__init__(model_type = 0, p2=p2, lambda_qut=lambda_qut, device=device)
+    def __init__(self, penalty=0, p2=20, lambda_qut=None, device=None):
+        super().__init__(penalty = penalty, model_type = 0, p2=p2, lambda_qut=lambda_qut, device=device)
 
     def forward(self, X):
         layer1_output = self.act_fun(self.layer1(X))
@@ -37,7 +37,7 @@ class AnnLassoRegression(ModelArchitecture):
             loss = loss.detach()
 
             if verbose and epoch % 20 ==0:
-                print(f"\tEpoch: {epoch} | Loss: {loss.item():.5f} | learning rate : {optimizer_l1.get_lr():.6f}")
+                print(f"\tEpoch: {epoch} | Loss: {loss.item():.5f} | Non zeros parameters: {self.imp_feat()}| learning rate : {optimizer_l1.get_lr():.6f}")
 
             if loss > last_loss: 
                 optimizer_l1.update(optimizer_l1.get_lr()*lr_factor)

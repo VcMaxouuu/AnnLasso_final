@@ -87,6 +87,20 @@ class LinearModel():
                 print(f"Lambda = {lambi.item():.4f} -- Nu = {nu}" if self.penalty == 0 else f"Lambda = {lambi.item():.4f}")
             
             self.train_model(nu, X, y, lambi, init_lr, rel_err, verbose)
+
+        # Check if returning mean(y) gives better results
+        model_predictions = self.forward(X)
+        if self.penalty == 0:
+            loss_fn = LinearRegressionLoss(self.lambda_qut, 0.1).to(self.device)
+        else:
+            loss_fn = LinearRegressionLoss(self.lambda_qut, 1).to(self.device)
+        model_bare_error = loss_fn(model_predictions, y, self.theta)[1]
+        mean_y = y.mean()
+        baseline_bare_error = torch.mean((y - mean_y) ** 2)
+        if model_bare_error > baseline_bare_error:
+            self.theta.weight.data.fill_(0)
+            self.theta.bias.data.fill_(mean_y.item())
+
         
         self.important_features = self.imp_feat()
         if verbose: print("MODEL FITTED !")

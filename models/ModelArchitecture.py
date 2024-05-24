@@ -54,6 +54,20 @@ class ModelArchitecture:
                 self.lambda_qut = torch.tensor(self.lambda_qut, dtype=torch.float, device=self.device)
 
         self.train_loop(X, y, verbose, param_history)
+        
+        # Check if returning mean(y) gives better results
+        if self.model_type == 0 :
+            metric = utils.CustomRegressionLoss(self.lambda_qut, 0.1).to(self.device)
+            model_error = metric(self.forward(X), y, self.layer1)[0]
+
+            metric = torch.nn.MSELoss(reduction='sum')
+            baseline_error = torch.sqrt(metric(y.mean(), y))
+            
+            if model_error > baseline_error:
+                self.layer1.weight.data.fill_(0)
+                self.layer1.bias.data.fill_(0)
+                self.layer2.weight.data.fill_(0)
+                self.layer2.bias.data.fill_(y.mean().item())
 
         self.important_features = self.imp_feat()
         self.layer1_simplified = nn.Linear(self.important_features[0], self.p2, device=self.device)

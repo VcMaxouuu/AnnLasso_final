@@ -94,12 +94,14 @@ class LinearModel():
             loss_fn = LinearRegressionLoss(self.lambda_qut, 0.1).to(self.device)
         else:
             loss_fn = LinearRegressionLoss(self.lambda_qut, 1).to(self.device)
-        model_bare_error = loss_fn(model_predictions, y, self.theta)[1]
-        mean_y = y.mean()
-        baseline_bare_error = torch.mean((y - mean_y) ** 2)
-        if model_bare_error > baseline_bare_error:
+        model_error = loss_fn(model_predictions, y, self.theta)[0]
+
+        metric = torch.nn.MSELoss(reduction='sum')
+        baseline_error = torch.sqrt(metric(y.mean(), y))
+
+        if model_error > baseline_error:
             self.theta.weight.data.fill_(0)
-            self.theta.bias.data.fill_(mean_y.item())
+            self.theta.bias.data.fill_(y.mean().item())
 
         
         self.important_features = self.imp_feat()

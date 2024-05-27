@@ -57,12 +57,15 @@ class ModelArchitecture:
         
         # Check if returning mean(y) gives better results
         if self.model_type == 0 :
-            metric = utils.CustomRegressionLoss(self.lambda_qut, 0.1).to(self.device)
-            model_error = metric(self.forward(X), y, self.layer1)[0]
+            if self.penalty == 0:
+                loss_fn = utils.CustomRegressionLoss(self.lambda_qut, 0.1).to(self.device)
+            else:
+                loss_fn = utils.CustomRegressionLoss(self.lambda_qut, 1).to(self.device)
+            model_error = loss_fn(self.forward(X), y, self.layer1)[0]
 
             metric = torch.nn.MSELoss(reduction='sum')
             baseline_error = torch.sqrt(metric(y.mean(), y))
-            
+
             if model_error > baseline_error:
                 self.layer1.weight.data.fill_(0)
                 self.layer1.bias.data.fill_(0)

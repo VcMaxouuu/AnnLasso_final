@@ -104,16 +104,16 @@ def generate_linear_data(X, s, test_size=None):
     beta = snr * np.ones(s) 
 
     if isinstance(X, pd.DataFrame):
-        y = np.dot(X.iloc[:, inds], beta) + np.random.normal(size=(n))
+        X_np = X.values
     else:
-        y = np.dot(X[:, inds], beta) + np.random.normal(size=(n))
+        X_np = X
 
+    y = np.dot(X_np[:, inds], beta) + np.random.normal(size=(n))
     y = pd.DataFrame(y)
 
     if test_size is not None:
         X_test = np.random.normal(size=(test_size, p))
         y_test = np.dot(X_test[:, inds], beta) + np.random.normal(size=(test_size))
-
         X_test, y_test = pd.DataFrame(X_test), pd.DataFrame(y_test)
         return y, inds, X_test, y_test
     
@@ -136,28 +136,19 @@ def generate_nonlinear_data(X, s, test_size=None):
     n, p = X.shape
     snr = 10    
     
-    inds = np.arange(0, s)
-
-    y = np.zeros(shape=(n))
+    inds = np.random.choice(range(p), s, replace=False)
 
     if isinstance(X, pd.DataFrame):
-        for i in range(0, s, 2):
-            y += snr*np.abs(X.iloc[:, i+1]-X.iloc[:, i])
-        y += np.random.normal(size=(n))
+        X_np = X.values
     else:
-        for i in range(0, s, 2):
-            y += snr*np.abs(X[:, i+1]-X[:, i])
-        y += np.random.normal(size=(n))
+        X_np = X
 
+    y = snr * np.sum(np.abs(X_np[:, inds]), axis=1) + np.random.normal(size=(n))
     y = pd.DataFrame(y)
 
     if test_size is not None:
         X_test = np.random.normal(size=(test_size, p))
-        y_test = np.zeros(shape=(test_size))
-        for i in range(0, s, 2):
-            y_test = snr*np.abs(X_test[:, i+1]-X_test[:, i])
-        y_test += np.random.normal(size=(test_size))
-
+        y_test = snr * np.sum(np.abs(X_test[:, inds]), axis=1) + np.random.normal(size=(test_size))
         X_test, y_test = pd.DataFrame(X_test), pd.DataFrame(y_test)
         return y, inds, X_test, y_test
     

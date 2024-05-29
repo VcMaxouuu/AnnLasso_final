@@ -39,8 +39,8 @@ class ModelArchitecture:
         output_dim = 1 if self.model_type == 0 else len(hat_p)
         self.layer1 = nn.Linear(p1, self.p2, dtype=torch.float, device=self.device)
         self.layer2 = nn.Linear(self.p2, output_dim, dtype=torch.float, device=self.device)
-        nn.init.normal_(self.layer1.weight, mean=0.0, std=0.01)
-        nn.init.normal_(self.layer2.weight, mean=0.0, std=0.01)
+        nn.init.normal_(self.layer1.weight, mean=0.0, std=10) #! std = y.std() ??!!
+        nn.init.normal_(self.layer2.weight, mean=0.0, std=10)
 
         if self.lambda_qut is None:
             if self.model_type == 0:
